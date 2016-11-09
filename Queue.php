@@ -18,29 +18,60 @@ abstract class Queue extends \yii\base\Object
      * @var Module
      */
     public $module;
+    /**
+     *
+     */
     abstract protected function pushJob($message, $delay = 0);
+    /**
+     *
+     */
     abstract protected function popJob();
 
+    /**
+     *
+     * @param string $route
+     * @param mixed $payload
+     * @param int $delay
+     * @return bool
+     */
     public function push($route, $payload = [], $delay = 0)
     {
         $message = serialize([$route, $payload]);
         return $this->pushJob($message, $delay);
     }
 
+    /**
+     *
+     * @return type
+     */
     public function pop()
     {
         $message = $this->popJob();
-        return unserialize($message, true);
+        if ($message) {
+            return unserialize($message);
+        }
+        return false;
     }
 
+    /**
+     * 
+     */
     public function run()
     {
         list($route, $payload) = $this->pop();
-        if ($this->runJob($route, $payload) === false) {
+        $result = $this->runJob($route, $payload);
+        if ($result === false) {
             $this->push($route, $payload);
         }
+        return $result;
     }
 
+    /**
+     *
+     * @param string $route
+     * @param mixed $payload
+     * @return bool
+     */
     protected function runJob($route, $payload = [])
     {
         return $this->getModule()->runAction($route, $payload);
