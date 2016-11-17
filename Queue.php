@@ -18,10 +18,12 @@ abstract class Queue extends \yii\base\Object
      * @var Module
      */
     public $module;
+
     /**
      *
      */
     abstract protected function pushJob($message, $delay = 0);
+
     /**
      *
      */
@@ -58,12 +60,15 @@ abstract class Queue extends \yii\base\Object
      */
     public function run()
     {
-        list($route, $payload) = $this->pop();
-        $result = $this->runJob($route, $payload);
-        if ($result === false) {
-            $this->push($route, $payload);
+        if ($job = $this->pop()) {
+            list($route, $payload) = $job;
+            $result = $this->runJob($route, $payload);
+            if ($result === false) {
+                $this->push($route, $payload);
+            }
+            return $result;
         }
-        return $result;
+        return true;
     }
 
     /**

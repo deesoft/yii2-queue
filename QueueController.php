@@ -28,6 +28,12 @@ class QueueController extends Controller
      * @var int
      */
     public $sleepTime;
+
+    /**
+     *
+     * @var string
+     */
+    public $mutex = 'yii\mutex\FileMutex';
     /**
      *
      * @var string
@@ -53,16 +59,29 @@ class QueueController extends Controller
 
     /**
      *
+     * @param int $timeout
      */
-    public function actionListen()
+    public function actionListen($timeout = 0)
     {
-        $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run";
-        $cwd = getcwd();
-        while (true) {
-            $this->runQueue($command, $cwd);
-            if ($this->sleepTime) {
-                sleep($this->sleepTime);
+        /* @var $mutex \yii\mutex\Mutex */
+        $mutex = Yii::createObject($this->mutex);
+        if ($timeout > 0) {
+            $timeout = time() + $timeout;
+        }
+        if ($mutex->acquire(__METHOD__, 1)) {
+            $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run";
+            $cwd = getcwd();
+            while (true) {
+                $this->runQueue($command, $cwd);
+                if ($this->sleepTime) {
+                    sleep($this->sleepTime);
+                }
+                if ($timeout > 0 && time() > $timeout) {
+                    break;
+                }
             }
+        } else {
+            $this->stdout("Already running...\n");
         }
     }
 
@@ -75,10 +94,8 @@ class QueueController extends Controller
     {
         $process = new Process($command, $cwd);
         $process->run();
-        if ($process->isSuccessful()) {
-            $this->stdout($process->getOutput() . PHP_EOL);
-        } else {
-            $this->stdout($process->getErrorOutput() . PHP_EOL);
+        if (!$process->isSuccessful()) {
+            $this->stdout($process->getErrorOutput());
         }
     }
 

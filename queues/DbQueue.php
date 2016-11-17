@@ -20,7 +20,7 @@ class DbQueue extends \dee\queue\Queue
      * @var Connection 
      */
     public $db = 'db';
-    public $tableName = '{{%queue}}';
+    public $tableName = '{{%dee_queue}}';
 
     public function init()
     {
