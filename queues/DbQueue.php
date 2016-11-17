@@ -26,6 +26,7 @@ class DbQueue extends \dee\queue\Queue
     {
         parent::init();
         $this->db = Instance::ensure($this->db, Connection::className());
+        $this->createTable();
     }
 
     protected function createTable()

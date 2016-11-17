@@ -27,13 +27,14 @@ class QueueController extends Controller
      *
      * @var int
      */
-    public $sleepTime;
+    public $sleepTimeout;
 
     /**
      *
      * @var string
      */
     public $mutex = 'yii\mutex\FileMutex';
+
     /**
      *
      * @var string
@@ -73,8 +74,8 @@ class QueueController extends Controller
             $cwd = getcwd();
             while (true) {
                 $this->runQueue($command, $cwd);
-                if ($this->sleepTime) {
-                    sleep($this->sleepTime);
+                if ($this->sleepTimeout) {
+                    sleep($this->sleepTimeout);
                 }
                 if ($timeout > 0 && time() > $timeout) {
                     break;
@@ -94,7 +95,9 @@ class QueueController extends Controller
     {
         $process = new Process($command, $cwd);
         $process->run();
-        if (!$process->isSuccessful()) {
+        if ($process->isSuccessful()) {
+            $this->stdout($process->getOutput());
+        } else {
             $this->stdout($process->getErrorOutput());
         }
     }
@@ -105,6 +108,6 @@ class QueueController extends Controller
     public function actionRun()
     {
         $this->queue = Instance::ensure($this->queue, Queue::className());
-        $this->queue->run();
+        return $this->queue->run();
     }
 }
