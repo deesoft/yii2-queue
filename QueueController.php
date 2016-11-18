@@ -69,11 +69,10 @@ class QueueController extends Controller
         if ($timeout > 0) {
             $timeout = time() + $timeout;
         }
-        if ($mutex->acquire(__METHOD__, 1)) {
-            $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run";
-            $cwd = getcwd();
+        $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run";
+        if ($mutex->acquire(__METHOD__)) {
             while (true) {
-                $this->runQueue($command, $cwd);
+                $this->runQueue($command);
                 if ($this->sleepTimeout) {
                     sleep($this->sleepTimeout);
                 }
@@ -82,7 +81,7 @@ class QueueController extends Controller
                 }
             }
         } else {
-            $this->stdout("Already running...\n");
+            $this->stdout("$command\nAlready running...\n");
         }
     }
 
@@ -91,9 +90,9 @@ class QueueController extends Controller
      * @param type $command
      * @param type $cwd
      */
-    protected function runQueue($command, $cwd)
+    protected function runQueue($command)
     {
-        $process = new Process($command, $cwd);
+        $process = new Process($command);
         $process->run();
         if ($process->isSuccessful()) {
             $this->stdout($process->getOutput());
