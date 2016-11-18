@@ -107,6 +107,6 @@ class QueueController extends Controller
     public function actionRun()
     {
         $this->queue = Instance::ensure($this->queue, Queue::className());
-        return $this->queue->run();
+        return $this->queue->run() !== false ? self::EXIT_CODE_NORMAL : self::EXIT_CODE_ERROR;
     }
 }
