@@ -81,7 +81,7 @@ class QueueController extends Controller
                 }
             }
         } else {
-            $this->stdout("$command\nAlready running...\n");
+            $this->stdout("Already running...\n");
         }
     }
 
