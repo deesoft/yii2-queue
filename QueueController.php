@@ -6,6 +6,7 @@ use Yii;
 use yii\console\Controller;
 use Symfony\Component\Process\Process;
 use yii\di\Instance;
+use yii\helpers\FileHelper;
 
 /**
  * Description of QueueController
@@ -34,6 +35,9 @@ class QueueController extends Controller
      * @var string
      */
     public $mutex = 'yii\mutex\FileMutex';
+    public $directCall = true;
+    private $_day;
+    private $_file;
 
     /**
      *
@@ -41,6 +45,11 @@ class QueueController extends Controller
      */
     private $_scriptFile;
 
+    public function init()
+    {
+        parent::init();
+        $this->queue = Instance::ensure($this->queue, Queue::className());
+    }
     public function getScriptFile()
     {
         if ($this->_scriptFile === null) {
@@ -61,10 +70,9 @@ class QueueController extends Controller
     {
         if ($value) {
             $this->_scriptFile = realpath(Yii::getAlias($value));
-        }  else {
+        } else {
             $this->_scriptFile = null;
         }
-        
     }
 
     /**
@@ -79,16 +87,13 @@ class QueueController extends Controller
             $timeout = time() + $timeout;
         }
         if ($mutex->acquire(__METHOD__)) {
-            echo $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run 2>&1 >>";
-            $d = false;
-            while (true) {
-                if ($d != date('Ym/d')) {
-                    $d = date('Ym/d');
-                    $file = Yii::getAlias("@runtime/queue/{$d}.log");
-                    \yii\helpers\FileHelper::createDirectory(dirname($file));
-                    $cmd = $command . $file;
-                }
-                $this->runQueue($cmd);
+            $fileCheck = Yii::getAlias("@runtime/queue/listen_check.php");
+            $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run 2>&1";
+            $this->_file = Yii::getAlias('@runtime/queue/' . date('Ym/d') . '.log');
+            FileHelper::createDirectory(dirname($this->_file));
+            file_put_contents($fileCheck, "<?php\n return true;");
+            while (require($fileCheck)) {
+                $this->runQueue($command);
                 if ($this->sleepTimeout) {
                     sleep($this->sleepTimeout);
                 }
@@ -96,10 +101,19 @@ class QueueController extends Controller
                     break;
                 }
             }
+            $mutex->release(__METHOD__);
         } else {
             $this->stderr("Already running...\n");
             return self::EXIT_CODE_ERROR;
         }
+        $this->stdout("Done..\n");
+    }
+
+    public function actionStop()
+    {
+        $fileCheck = Yii::getAlias("@runtime/queue/listen_check.php");
+        FileHelper::createDirectory(dirname($fileCheck));
+        file_put_contents($fileCheck, "<?php\n return false;");
     }
 
     /**
@@ -109,8 +123,17 @@ class QueueController extends Controller
      */
     protected function runQueue($command)
     {
-        $process = new Process($command);
-        $process->run();
+        if ($this->directCall) {
+            $this->actionRun();
+        } else {
+            if ($this->_day != ($d = date('Ym/d'))) {
+                $this->_day = $d;
+                $this->_file = Yii::getAlias("@runtime/queue/{$d}.log");
+                FileHelper::createDirectory(dirname($this->_file));
+            }
+            $process = new Process("$command >>{$this->_file}");
+            $process->run();
+        }
     }
 
     /**
@@ -118,10 +141,10 @@ class QueueController extends Controller
      */
     public function actionRun()
     {
-        $this->queue = Instance::ensure($this->queue, Queue::className());
-        $result = $this->queue->run();
-        if ($result !== null) {
-            return $result === false ? self::EXIT_CODE_ERROR : self::EXIT_CODE_NORMAL;
+        try {
+            return $this->queue->run() === false ? self::EXIT_CODE_ERROR : self::EXIT_CODE_NORMAL;
+        } catch (\Exception $exc) {
+            echo $exc->getTraceAsString();
         }
     }
 }
