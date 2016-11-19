@@ -48,14 +48,23 @@ class QueueController extends Controller
             if (strncmp($cmd, './', 2) === 0) {
                 $cmd = substr($cmd, 2);
             }
-            $this->_scriptFile = getcwd() . '/' . $cmd;
+            if (strncmp($cmd, '/', 1) === 0) {
+                $this->_scriptFile = $cmd;
+            } else {
+                $this->_scriptFile = getcwd() . '/' . $cmd;
+            }
         }
         return $this->_scriptFile;
     }
 
     public function setScriptFile($value)
     {
-        $this->_scriptFile = realpath(Yii::getAlias($value));
+        if ($value) {
+            $this->_scriptFile = realpath(Yii::getAlias($value));
+        }  else {
+            $this->_scriptFile = null;
+        }
+        
     }
 
     /**
@@ -69,10 +78,17 @@ class QueueController extends Controller
         if ($timeout > 0) {
             $timeout = time() + $timeout;
         }
-        $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run";
         if ($mutex->acquire(__METHOD__)) {
+            echo $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run 2>&1 >>";
+            $d = false;
             while (true) {
-                $this->runQueue($command);
+                if ($d != date('Ym/d')) {
+                    $d = date('Ym/d');
+                    $file = Yii::getAlias("@runtime/queue/{$d}.log");
+                    \yii\helpers\FileHelper::createDirectory(dirname($file));
+                    $cmd = $command . $file;
+                }
+                $this->runQueue($cmd);
                 if ($this->sleepTimeout) {
                     sleep($this->sleepTimeout);
                 }
@@ -81,7 +97,8 @@ class QueueController extends Controller
                 }
             }
         } else {
-            $this->stdout("Already running...\n");
+            $this->stderr("Already running...\n");
+            return self::EXIT_CODE_ERROR;
         }
     }
 
@@ -94,11 +111,6 @@ class QueueController extends Controller
     {
         $process = new Process($command);
         $process->run();
-        if ($process->isSuccessful()) {
-            $this->stdout($process->getOutput());
-        } else {
-            $this->stdout($process->getErrorOutput());
-        }
     }
 
     /**
@@ -107,6 +119,9 @@ class QueueController extends Controller
     public function actionRun()
     {
         $this->queue = Instance::ensure($this->queue, Queue::className());
-        return $this->queue->run() !== false ? self::EXIT_CODE_NORMAL : self::EXIT_CODE_ERROR;
+        $result = $this->queue->run();
+        if ($result !== null) {
+            return $result === false ? self::EXIT_CODE_ERROR : self::EXIT_CODE_NORMAL;
+        }
     }
 }

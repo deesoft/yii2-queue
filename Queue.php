@@ -66,9 +66,8 @@ abstract class Queue extends \yii\base\Object
             if ($result === false) {
                 $this->push($route, $payload);
             }
-            return $result;
+            return $result !== false;
         }
-        return true;
     }
 
     /**
@@ -79,6 +78,9 @@ abstract class Queue extends \yii\base\Object
      */
     protected function runJob($route, $payload = [])
     {
+        if (YII_DEBUG && PHP_SAPI == 'cli') {
+            echo "$route:\n";
+        }
         return $this->getModule()->runAction($route, $payload);
     }
 
