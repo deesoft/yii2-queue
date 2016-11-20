@@ -38,6 +38,7 @@ class QueueController extends Controller
     public $directCall = true;
     private $_day;
     private $_file;
+    private $_isRuning = true;
 
     /**
      *
@@ -50,6 +51,7 @@ class QueueController extends Controller
         parent::init();
         $this->queue = Instance::ensure($this->queue, Queue::className());
     }
+
     public function getScriptFile()
     {
         if ($this->_scriptFile === null) {
@@ -87,12 +89,19 @@ class QueueController extends Controller
             $timeout = time() + $timeout;
         }
         if ($mutex->acquire(__METHOD__)) {
-            $fileCheck = Yii::getAlias("@runtime/queue/listen_check.php");
+            declare(ticks = 1);
+            pcntl_signal(SIGTERM, [$this, 'handlerSignal']);
+            pcntl_signal(SIGINT, [$this, 'handlerSignal']);
+
+            // run command
             $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run 2>&1";
             $this->_file = Yii::getAlias('@runtime/queue/' . date('Ym/d') . '.log');
             FileHelper::createDirectory(dirname($this->_file));
-            file_put_contents($fileCheck, "<?php\n return true;");
-            while (require($fileCheck)) {
+
+            // save current pid
+            $filePid = Yii::getAlias("@runtime/queue/listen_pid.php");
+            file_put_contents($filePid, sprintf("<?php\n return %d;", getmypid()));
+            while ($this->_isRuning) {
                 $this->runQueue($command);
                 if ($this->sleepTimeout) {
                     sleep($this->sleepTimeout);
@@ -111,9 +120,19 @@ class QueueController extends Controller
 
     public function actionStop()
     {
-        $fileCheck = Yii::getAlias("@runtime/queue/listen_check.php");
-        FileHelper::createDirectory(dirname($fileCheck));
-        file_put_contents($fileCheck, "<?php\n return false;");
+        $pid = require(Yii::getAlias("@runtime/queue/listen_pid.php"));
+        posix_kill($pid, SIGKILL);
+    }
+
+    protected function handlerSignal($signal)
+    {
+        switch ($signal) {
+            case SIGTERM:
+            case SIGKILL:
+            case SIGINT:
+                $this->_isRuning = false;
+                break;
+        }
     }
 
     /**
