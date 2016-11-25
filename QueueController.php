@@ -163,7 +163,8 @@ class QueueController extends Controller
         try {
             return $this->queue->run() === false ? self::EXIT_CODE_ERROR : self::EXIT_CODE_NORMAL;
         } catch (\Exception $exc) {
-            echo $exc->getTraceAsString();
+            echo $exc->getMessage();
+            return self::EXIT_CODE_ERROR;
         }
     }
 }
