@@ -142,14 +142,17 @@ class QueueController extends Controller
      */
     protected function runQueue($command)
     {
+        if ($this->_day != ($d = date('Ym/d'))) {
+            $this->_day = $d;
+            $this->_file = Yii::getAlias("@runtime/queue/{$d}.log");
+            FileHelper::createDirectory(dirname($this->_file));
+        }
         if ($this->directCall) {
+            ob_start();
+            ob_implicit_flush(false);
             $this->actionRun();
+            file_put_contents($this->_file, ob_get_clean(), FILE_APPEND);
         } else {
-            if ($this->_day != ($d = date('Ym/d'))) {
-                $this->_day = $d;
-                $this->_file = Yii::getAlias("@runtime/queue/{$d}.log");
-                FileHelper::createDirectory(dirname($this->_file));
-            }
             $process = new Process("$command >>{$this->_file}");
             $process->run();
         }
@@ -160,11 +163,6 @@ class QueueController extends Controller
      */
     public function actionRun()
     {
-        try {
-            return $this->queue->run() === false ? self::EXIT_CODE_ERROR : self::EXIT_CODE_NORMAL;
-        } catch (\Exception $exc) {
-            echo $exc->getMessage();
-            return self::EXIT_CODE_ERROR;
-        }
+        return $this->queue->run() === false ? self::EXIT_CODE_ERROR : self::EXIT_CODE_NORMAL;
     }
 }

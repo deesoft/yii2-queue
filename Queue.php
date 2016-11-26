@@ -81,7 +81,12 @@ abstract class Queue extends \yii\base\Object
         if (YII_DEBUG && PHP_SAPI == 'cli') {
             echo "$route:\n";
         }
-        return $this->getModule()->runAction($route, $payload);
+        try {
+            return $this->getModule()->runAction($route, $payload);
+        } catch (\Exception $exc) {
+            echo YII_DEBUG ? $exc->getTraceAsString() : $exc->getMessage();
+            return false;
+        }
     }
 
     /**
