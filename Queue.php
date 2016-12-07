@@ -36,9 +36,9 @@ abstract class Queue extends \yii\base\Object
      * @param int $delay
      * @return bool
      */
-    public function push($route, $payload = [], $delay = 0)
+    public function push($route, $payload = [], $delay = 0, $execution = -1)
     {
-        $message = serialize([$route, $payload]);
+        $message = serialize([$route, $payload, $execution]);
         return $this->pushJob($message, $delay);
     }
 
@@ -61,10 +61,10 @@ abstract class Queue extends \yii\base\Object
     public function run()
     {
         if ($job = $this->pop()) {
-            list($route, $payload) = $job;
+            list($route, $payload, $execution) = $job;
             $result = $this->runJob($route, $payload);
-            if ($result === false) {
-                $this->push($route, $payload);
+            if ($result === false && ($execution > 0 || $execution === -1)) {
+                $this->push($route, $payload, 0, $execution > 0 ? $execution - 1 : $execution);
             }
             return $result !== false;
         }
@@ -84,6 +84,7 @@ abstract class Queue extends \yii\base\Object
         try {
             return $this->getModule()->runAction($route, $payload);
         } catch (\Exception $exc) {
+            throw $exc;
             echo YII_DEBUG ? $exc->getTraceAsString() : $exc->getMessage();
             return false;
         }
