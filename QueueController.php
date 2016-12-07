@@ -83,12 +83,13 @@ class QueueController extends Controller
      */
     public function actionListen($timeout = 0)
     {
+        $key = $this->getKey();
         /* @var $mutex \yii\mutex\Mutex */
         $mutex = Yii::createObject($this->mutex);
         if ($timeout > 0) {
             $timeout = time() + $timeout;
         }
-        if ($mutex->acquire(__METHOD__)) {
+        if ($mutex->acquire(__METHOD__ . $key)) {
             declare(ticks = 1);
             pcntl_signal(SIGTERM, [$this, 'handlerSignal']);
             pcntl_signal(SIGINT, [$this, 'handlerSignal']);
@@ -99,7 +100,7 @@ class QueueController extends Controller
             FileHelper::createDirectory(dirname($this->_file));
 
             // save current pid
-            $filePid = Yii::getAlias("@runtime/queue/listen_pid.php");
+            $filePid = Yii::getAlias("@runtime/queue/pid-$key.php");
             file_put_contents($filePid, sprintf("<?php\n return %d;", getmypid()));
             while ($this->_isRuning) {
                 $this->runQueue($command);
@@ -110,7 +111,7 @@ class QueueController extends Controller
                     break;
                 }
             }
-            $mutex->release(__METHOD__);
+            $mutex->release(__METHOD__ . $key);
         } else {
             $this->stderr("Already running...\n");
             return self::EXIT_CODE_ERROR;
@@ -120,8 +121,21 @@ class QueueController extends Controller
 
     public function actionStop()
     {
-        $pid = require(Yii::getAlias("@runtime/queue/listen_pid.php"));
+        $key = $this->getKey();
+        $pid = require(Yii::getAlias("@runtime/queue/pid-$key.php"));
         posix_kill($pid, SIGKILL);
+    }
+
+    protected function getKey()
+    {
+        if (isset($_SERVER['HOME'])) {
+            $home = $_SERVER['HOME'];
+        } elseif (isset($_SERVER['HOMEPATH'])) {
+            $home = $_SERVER['HOMEPATH'];
+        } else {
+            $home = __FILE__;
+        }
+        return sprintf('%x', crc32($home));
     }
 
     protected function handlerSignal($signal)
