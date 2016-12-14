@@ -23,23 +23,20 @@ class QueueController extends Controller
      * @var Queue
      */
     public $queue = 'queue';
-
     /**
      *
      * @var int
      */
     public $sleepTimeout;
-
     /**
      *
      * @var string
      */
     public $mutex = 'yii\mutex\FileMutex';
-    public $directCall = true;
+    
     private $_day;
     private $_file;
     private $_isRuning = true;
-
     /**
      *
      * @var string
@@ -161,19 +158,12 @@ class QueueController extends Controller
             $this->_file = Yii::getAlias("@runtime/queue/{$d}.log");
             FileHelper::createDirectory(dirname($this->_file));
         }
-        if ($this->directCall) {
-            ob_start();
-            ob_implicit_flush(false);
-            $this->actionRun();
-            file_put_contents($this->_file, ob_get_clean(), FILE_APPEND);
-        } else {
-            $process = new Process("$command >>{$this->_file}");
-            $process->run();
-        }
+        $process = new Process("$command >>{$this->_file}");
+        $process->run();
     }
 
     /**
-     *
+     * Run queue
      */
     public function actionRun()
     {
