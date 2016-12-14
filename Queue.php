@@ -18,14 +18,17 @@ abstract class Queue extends \yii\base\Object
      * @var Module
      */
     public $module;
-
+    
     /**
-     *
+     * Push job to queue
+     * @param string $message
+     * @param int $delay delay before task executed
      */
     abstract protected function pushJob($message, $delay = 0);
 
     /**
-     *
+     * Pop job from queue
+     * @return string.
      */
     abstract protected function popJob();
 
@@ -44,7 +47,7 @@ abstract class Queue extends \yii\base\Object
 
     /**
      *
-     * @return type
+     * @return array|bool 
      */
     public function pop()
     {
@@ -56,7 +59,7 @@ abstract class Queue extends \yii\base\Object
     }
 
     /**
-     * 
+     * Run top of job in queue.
      */
     public function run()
     {
@@ -78,14 +81,10 @@ abstract class Queue extends \yii\base\Object
      */
     protected function runJob($route, $payload = [])
     {
-        if (YII_DEBUG && PHP_SAPI == 'cli') {
-            echo "$route:\n";
-        }
         try {
             return $this->getModule()->runAction($route, $payload);
         } catch (\Exception $exc) {
-            throw $exc;
-            echo YII_DEBUG ? $exc->getTraceAsString() : $exc->getMessage();
+            Yii::error($exc->getTraceAsString(), __METHOD__);
             return false;
         }
     }
