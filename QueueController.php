@@ -33,7 +33,6 @@ class QueueController extends Controller
      * @var string
      */
     public $mutex = 'yii\mutex\FileMutex';
-    
     private $_day;
     private $_file;
     private $_isRuning = true;
@@ -81,6 +80,7 @@ class QueueController extends Controller
     public function actionListen($timeout = 0)
     {
         $key = $this->getKey();
+        $basePath = Yii::getAlias("@runtime/queue-$key") . '/';
         /* @var $mutex \yii\mutex\Mutex */
         $mutex = Yii::createObject($this->mutex);
         if ($timeout > 0) {
@@ -93,11 +93,11 @@ class QueueController extends Controller
 
             // run command
             $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run 2>&1";
-            $this->_file = Yii::getAlias('@runtime/queue/' . date('Ym/d') . '.log');
-            FileHelper::createDirectory(dirname($this->_file));
+            $this->_file = $basePath . date('Ym/d') . '.log';
+            FileHelper::createDirectory(dirname($this->_file), 0777);
 
             // save current pid
-            $filePid = Yii::getAlias("@runtime/queue/pid-$key.php");
+            $filePid = $basePath . 'pid.php';
             file_put_contents($filePid, sprintf("<?php\n return %d;", getmypid()));
             while ($this->_isRuning) {
                 $this->runQueue($command);
@@ -119,7 +119,7 @@ class QueueController extends Controller
     public function actionStop()
     {
         $key = $this->getKey();
-        $pid = require(Yii::getAlias("@runtime/queue/pid-$key.php"));
+        $pid = require(Yii::getAlias("@runtime/queue-$key/pid.php"));
         posix_kill($pid, SIGKILL);
     }
 
@@ -155,8 +155,8 @@ class QueueController extends Controller
     {
         if ($this->_day != ($d = date('Ym/d'))) {
             $this->_day = $d;
-            $this->_file = Yii::getAlias("@runtime/queue/{$d}.log");
-            FileHelper::createDirectory(dirname($this->_file));
+            $this->_file = Yii::getAlias("@runtime/queue-{$this->getKey()}/{$d}.log");
+            FileHelper::createDirectory(dirname($this->_file), 0777);
         }
         $process = new Process("$command >>{$this->_file}");
         $process->run();
