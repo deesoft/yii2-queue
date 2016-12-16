@@ -30,6 +30,11 @@ class QueueController extends Controller
     public $sleepTimeout;
     /**
      *
+     * @var bool execute job as asynchronous
+     */
+    public $asynchron = true;
+    /**
+     *
      * @var string
      */
     public $mutex = 'yii\mutex\FileMutex';
@@ -159,7 +164,11 @@ class QueueController extends Controller
             FileHelper::createDirectory(dirname($this->_file), 0777);
         }
         $process = new Process("$command >>{$this->_file}");
-        $process->run();
+        if ($this->asynchron) {
+            $process->start();
+        } else {
+            $process->run();
+        }
     }
 
     /**
