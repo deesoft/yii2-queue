@@ -91,7 +91,8 @@ class QueueController extends Controller
         if ($timeout > 0) {
             $timeout = time() + $timeout;
         }
-        if ($mutex->acquire(__METHOD__ . $key)) {
+        if ($mutex->acquire(__CLASS__ . $key)) {
+            echo 'running queue listener @ ' . date('Y-m-d H:i:s') . "\n";
             declare(ticks = 1);
             pcntl_signal(SIGTERM, [$this, 'handlerSignal']);
             pcntl_signal(SIGINT, [$this, 'handlerSignal']);
@@ -113,12 +114,25 @@ class QueueController extends Controller
                     break;
                 }
             }
-            $mutex->release(__METHOD__ . $key);
+            $mutex->release(__CLASS__ . $key);
         } else {
             $this->stderr("Already running...\n");
             return self::EXIT_CODE_ERROR;
         }
         $this->stdout("Done..\n");
+    }
+
+    public function actionStatus()
+    {
+        $key = $this->getKey();
+        /* @var $mutex \yii\mutex\Mutex */
+        $mutex = Yii::createObject($this->mutex);
+        if ($mutex->acquire(__CLASS__ . $key)) {
+            echo "Not running...\n";
+            $mutex->release(__CLASS__ . $key);
+        } else {
+            echo "Running...\n";
+        }
     }
 
     public function actionStop()
