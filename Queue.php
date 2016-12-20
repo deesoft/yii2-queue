@@ -18,7 +18,7 @@ abstract class Queue extends \yii\base\Object
      * @var Module
      */
     public $module;
-    
+
     /**
      * Push job to queue
      * @param string $message
@@ -39,7 +39,7 @@ abstract class Queue extends \yii\base\Object
      * @param int $delay
      * @return bool
      */
-    public function push($route, $payload = [], $delay = 0, $execution = -1)
+    public function push($route, $payload = [], $delay = 0, $execution = 5)
     {
         $message = serialize([$route, $payload, $execution]);
         return $this->pushJob($message, $delay);
@@ -66,8 +66,12 @@ abstract class Queue extends \yii\base\Object
         if ($job = $this->pop()) {
             list($route, $payload, $execution) = $job;
             $result = $this->runJob($route, $payload);
-            if ($result === false && ($execution > 0 || $execution === -1)) {
-                $this->push($route, $payload, 0, $execution > 0 ? $execution - 1 : $execution);
+            if ($result === false) {
+                if (($execution > 0 || $execution === -1)) {
+                    $this->push($route, $payload, 0, $execution > 0 ? $execution - 1 : $execution);
+                } else {
+                    Yii::error(json_encode([$route, $payload]), __METHOD__);
+                }
             }
             return $result !== false;
         }
@@ -84,7 +88,7 @@ abstract class Queue extends \yii\base\Object
         try {
             return $this->getModule()->runAction($route, $payload);
         } catch (\Exception $exc) {
-            Yii::error($exc->getTraceAsString(), __METHOD__);
+            Yii::error(YII_DEBUG ? $exc->getTraceAsString() : $exc->getMessage(), __METHOD__);
             return false;
         }
     }
