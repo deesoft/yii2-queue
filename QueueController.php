@@ -7,6 +7,7 @@ use yii\console\Controller;
 use Symfony\Component\Process\Process;
 use yii\di\Instance;
 use yii\helpers\FileHelper;
+use yii\caching\Cache;
 
 /**
  * Description of QueueController
@@ -25,9 +26,14 @@ class QueueController extends Controller
     public $queue = 'queue';
     /**
      *
+     * @var Cache
+     */
+    public $cache = 'cache';
+    /**
+     *
      * @var int
      */
-    public $sleepTimeout;
+    public $sleep = 0;
     /**
      *
      * @var bool execute job as asynchronous
@@ -35,12 +41,16 @@ class QueueController extends Controller
     public $asynchron = true;
     /**
      *
+     * @var string process name
+     */
+    public $name;
+    /**
+     *
      * @var string
      */
     public $mutex = 'yii\mutex\FileMutex';
     private $_day;
     private $_file;
-    private $_isRuning = true;
     /**
      *
      * @var string
@@ -51,6 +61,9 @@ class QueueController extends Controller
     {
         parent::init();
         $this->queue = Instance::ensure($this->queue, Queue::className());
+        if ($this->cache !== null) {
+            $this->cache = Instance::ensure($this->cache, Cache::className());
+        }
     }
 
     public function getScriptFile()
@@ -80,41 +93,36 @@ class QueueController extends Controller
 
     /**
      *
-     * @param int $timeout
      */
-    public function actionListen($timeout = 0)
+    public function actionListen()
     {
-        $key = $this->getKey();
-        $basePath = Yii::getAlias("@runtime/queue-$key") . '/';
         /* @var $mutex \yii\mutex\Mutex */
         $mutex = Yii::createObject($this->mutex);
-        if ($timeout > 0) {
-            $timeout = time() + $timeout;
-        }
-        if ($mutex->acquire(__CLASS__ . $key)) {
-            echo 'running queue listener @ ' . date('Y-m-d H:i:s') . "\n";
+        $mutexKey = __CLASS__ . $this->name;
+        if (empty($this->name) || $mutex->acquire($mutexKey)) {
+            $pid = getmypid();
+            echo "Run queue listener [$pid] @" . date('Y-m-d H:i:s') . "\n";
             declare(ticks = 1);
-            pcntl_signal(SIGTERM, [$this, 'handlerSignal']);
-            pcntl_signal(SIGINT, [$this, 'handlerSignal']);
+            pcntl_signal(SIGTERM, [$this, 'handelSignal']);
+            pcntl_signal(SIGINT, [$this, 'handelSignal']);
 
             // run command
             $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run 2>&1";
-            $this->_file = $basePath . date('Ym/d') . '.log';
-            FileHelper::createDirectory(dirname($this->_file), 0777);
 
-            // save current pid
-            $filePid = $basePath . 'pid.php';
-            file_put_contents($filePid, sprintf("<?php\n return %d;", getmypid()));
-            while ($this->_isRuning) {
-                $this->runQueue($command);
-                if ($this->sleepTimeout) {
-                    sleep($this->sleepTimeout);
+            $start = time() - 60;
+            while (true) {
+                if ($this->name && time() - $start >= 60 && $this->cache) {
+                    $start = time();
+                    $this->cache->set([__CLASS__, 'pid', $this->name], $pid, 62 + $this->sleep);
                 }
-                if ($timeout > 0 && time() > $timeout) {
-                    break;
+                $this->runQueue($command);
+                if ($this->sleep > 0) {
+                    sleep($this->sleep);
                 }
             }
-            $mutex->release(__CLASS__ . $key);
+            if ($this->name) {
+                $mutex->release($mutexKey);
+            }
         } else {
             $this->stderr("Already running...\n");
             return self::EXIT_CODE_ERROR;
@@ -124,44 +132,32 @@ class QueueController extends Controller
 
     public function actionStatus()
     {
-        $key = $this->getKey();
-        /* @var $mutex \yii\mutex\Mutex */
-        $mutex = Yii::createObject($this->mutex);
-        if ($mutex->acquire(__CLASS__ . $key)) {
-            echo "Not running...\n";
-            $mutex->release(__CLASS__ . $key);
-        } else {
-            echo "Running...\n";
+        if ($this->name && $this->cache) {
+            $pid = $this->cache->get([__CLASS__, 'pid', $this->name]);
+            if ($pid === false) {
+                echo "Not running...\n";
+            } else {
+                echo "Running...\n";
+            }
         }
     }
 
     public function actionStop()
     {
-        $key = $this->getKey();
-        $pid = require(Yii::getAlias("@runtime/queue-$key/pid.php"));
-        posix_kill($pid, SIGKILL);
-    }
-
-    protected function getKey()
-    {
-        if (isset($_SERVER['HOME'])) {
-            $home = $_SERVER['HOME'];
-        } elseif (isset($_SERVER['HOMEPATH'])) {
-            $home = $_SERVER['HOMEPATH'];
-        } else {
-            $home = __FILE__;
+        if ($this->name && $this->cache) {
+            $pid = $this->cache->get([__CLASS__, 'pid', $this->name]);
+            posix_kill($pid, SIGKILL);
         }
-        return sprintf('%x', crc32($home));
     }
 
-    protected function handlerSignal($signal)
+    public function handelSignal($signal)
     {
         switch ($signal) {
             case SIGTERM:
             case SIGKILL:
             case SIGINT:
-                $this->_isRuning = false;
-                break;
+                echo "Caught pcntl signal\n";
+                exit(1);
         }
     }
 
@@ -174,7 +170,7 @@ class QueueController extends Controller
     {
         if ($this->_day != ($d = date('Ym/d'))) {
             $this->_day = $d;
-            $this->_file = Yii::getAlias("@runtime/queue-{$this->getKey()}/{$d}.log");
+            $this->_file = Yii::getAlias("@runtime/queue/{$d}_{$this->name}.log");
             FileHelper::createDirectory(dirname($this->_file), 0777);
         }
         $process = new Process("$command >>{$this->_file}");
@@ -191,5 +187,15 @@ class QueueController extends Controller
     public function actionRun()
     {
         return $this->queue->run() === false ? self::EXIT_CODE_ERROR : self::EXIT_CODE_NORMAL;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function options($actionID)
+    {
+        return array_merge(parent::options($actionID), [
+            'name', 'asynchron', 'sleep'
+        ]);
     }
 }
