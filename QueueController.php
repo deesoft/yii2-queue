@@ -56,11 +56,12 @@ class QueueController extends Controller
      * @var string
      */
     private $_scriptFile;
+    private $_defaultQueue;
 
     public function init()
     {
         parent::init();
-        $this->queue = Instance::ensure($this->queue, Queue::className());
+        $this->_defaultQueue = $this->queue;
         if ($this->cache !== null) {
             $this->cache = Instance::ensure($this->cache, Cache::className());
         }
@@ -107,7 +108,15 @@ class QueueController extends Controller
             pcntl_signal(SIGINT, [$this, 'handelSignal']);
 
             // run command
-            $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run 2>&1";
+            $options = [];
+            if (is_string($this->queue) && $this->queue != $this->_defaultQueue) {
+                $options[] = "--queue={$this->queue}";
+            }
+            if ($this->name) {
+                $options[] = "--name={$this->name}";
+            }
+            $options = implode(' ', $options);
+            $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run $options 2>&1";
 
             $start = time() - 60;
             while (true) {
@@ -186,6 +195,7 @@ class QueueController extends Controller
      */
     public function actionRun()
     {
+        $this->queue = Instance::ensure($this->queue, Queue::className());
         return $this->queue->run() === false ? self::EXIT_CODE_ERROR : self::EXIT_CODE_NORMAL;
     }
 
@@ -195,7 +205,7 @@ class QueueController extends Controller
     public function options($actionID)
     {
         return array_merge(parent::options($actionID), [
-            'name', 'asynchron', 'sleep'
+            'name', 'asynchron', 'sleep', 'queue'
         ]);
     }
 }
