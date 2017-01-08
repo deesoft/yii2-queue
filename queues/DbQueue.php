@@ -26,20 +26,6 @@ class DbQueue extends \dee\queue\Queue
     {
         parent::init();
         $this->db = Instance::ensure($this->db, Connection::className());
-        $this->createTable();
-    }
-
-    protected function createTable()
-    {
-        if ($this->db->getTableSchema($this->tableName) === null) {
-            $this->db->createCommand()
-                ->createTable($this->tableName, [
-                    'id' => 'bigpk',
-                    'time' => 'integer',
-                    'data' => 'binary',
-                ])->execute();
-            $this->db->getTableSchema($this->tableName, true);
-        }
     }
 
     protected function popJob()
