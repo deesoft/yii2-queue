@@ -8,6 +8,7 @@ use Symfony\Component\Process\Process;
 use yii\di\Instance;
 use yii\helpers\FileHelper;
 use yii\caching\Cache;
+use yii\mutex\FileMutex;
 
 /**
  * Description of QueueController
@@ -48,7 +49,7 @@ class QueueController extends Controller
      *
      * @var string
      */
-    public $mutex = 'yii\mutex\FileMutex';
+    public $outputPath = '@runtime/queue';
     private $_day;
     private $_file;
     /**
@@ -57,6 +58,7 @@ class QueueController extends Controller
      */
     private $_scriptFile;
     private $_defaultQueue;
+    private $_outputPath;
 
     public function init()
     {
@@ -97,11 +99,11 @@ class QueueController extends Controller
      */
     public function actionListen()
     {
-        /* @var $mutex \yii\mutex\Mutex */
-        $mutex = Yii::createObject($this->mutex);
+        $mutex = new FileMutex(['fileMode' => 0777]);
         $mutexKey = __CLASS__ . $this->name;
         if (empty($this->name) || $mutex->acquire($mutexKey)) {
             $pid = getmypid();
+
             echo "Run queue listener [$pid] @" . date('Y-m-d H:i:s') . "\n";
             declare(ticks = 1);
             pcntl_signal(SIGTERM, [$this, 'handelSignal']);
@@ -117,6 +119,10 @@ class QueueController extends Controller
             }
             $options = implode(' ', $options);
             $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run $options 2>&1";
+            if ($this->outputPath) {
+                $sub = empty($this->name) ? '' : '/' . strtr(trim($this->name, '\\/'), ['/' => '', '\\' => '']);
+                $this->_outputPath = Yii::getAlias($this->outputPath) . $sub;
+            }
 
             $start = time() - 60;
             while (true) {
@@ -172,17 +178,20 @@ class QueueController extends Controller
 
     /**
      *
-     * @param type $command
-     * @param type $cwd
+     * @param string $command
      */
     protected function runQueue($command)
     {
-        if ($this->_day != ($d = date('Ym/d'))) {
-            $this->_day = $d;
-            $this->_file = Yii::getAlias("@runtime/queue/{$d}_{$this->name}.log");
-            FileHelper::createDirectory(dirname($this->_file), 0777);
+        if ($this->_outputPath) {
+            if ($this->_day != ($d = date('Ym/d'))) {
+                $this->_day = $d;
+                $this->_file = Yii::getAlias("{$this->_outputPath}/{$d}.log");
+                FileHelper::createDirectory(dirname($this->_file), 0777);
+            }
+            $command .= " >>{$this->_file}";
         }
-        $process = new Process("$command >>{$this->_file}");
+
+        $process = new Process($command);
         if ($this->asynchron) {
             $process->start();
         } else {
