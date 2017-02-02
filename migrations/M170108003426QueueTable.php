@@ -19,7 +19,7 @@ class M170108003426QueueTable extends Migration
             $this->createTable('{{%dee_queue}}', [
                 'id' => 'bigpk',
                 'time' => 'integer',
-                'data' => 'binary',
+                'data' => 'text',
                 ], $tableOptions);
         }
     }
