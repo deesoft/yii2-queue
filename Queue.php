@@ -53,7 +53,7 @@ abstract class Queue extends Component
         if ($execution === null) {
             $execution = $this->defaultExecutionTime;
         }
-        $message = serialize([$route, $payload, $execution]);
+        $message = json_encode([$route, $payload, $execution]);
         return $this->pushJob($message, $delay);
     }
 
@@ -65,7 +65,7 @@ abstract class Queue extends Component
     {
         $message = $this->popJob();
         if ($message) {
-            return unserialize($message);
+            return json_decode($message, true);
         }
         return false;
     }
