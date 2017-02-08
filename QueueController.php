@@ -7,8 +7,6 @@ use yii\console\Controller;
 use Symfony\Component\Process\Process;
 use yii\di\Instance;
 use yii\helpers\FileHelper;
-use yii\caching\Cache;
-use yii\mutex\FileMutex;
 
 /**
  * Description of QueueController
@@ -27,24 +25,14 @@ class QueueController extends Controller
     public $queue = 'queue';
     /**
      *
-     * @var Cache
+     * @var int
      */
-    public $cache = 'cache';
+    public $sleep = 1;
     /**
      *
      * @var int
      */
-    public $sleep = 0;
-    /**
-     *
-     * @var bool execute job as asynchronous
-     */
-    public $asynchron = true;
-    /**
-     *
-     * @var string process name
-     */
-    public $name;
+    public $maxProcess = 1;
     /**
      *
      * @var string
@@ -59,14 +47,12 @@ class QueueController extends Controller
     private $_scriptFile;
     private $_defaultQueue;
     private $_outputPath;
+    private $_processes;
 
     public function init()
     {
         parent::init();
         $this->_defaultQueue = $this->queue;
-        if ($this->cache !== null) {
-            $this->cache = Instance::ensure($this->cache, Cache::className());
-        }
     }
 
     public function getScriptFile()
@@ -99,70 +85,34 @@ class QueueController extends Controller
      */
     public function actionListen()
     {
-        $mutex = new FileMutex(['fileMode' => 0777]);
-        $mutexKey = __CLASS__ . $this->name;
-        if (empty($this->name) || $mutex->acquire($mutexKey)) {
-            $pid = getmypid();
+        $pid = getmypid();
 
-            echo "Run queue listener [$pid] @" . date('Y-m-d H:i:s') . "\n";
-            declare(ticks = 1);
-            pcntl_signal(SIGTERM, [$this, 'handelSignal']);
-            pcntl_signal(SIGINT, [$this, 'handelSignal']);
+        echo "Run queue listener [$pid] @" . date('Y-m-d H:i:s') . "\n";
+        declare(ticks = 1);
+        pcntl_signal(SIGTERM, [$this, 'handelSignal']);
+        pcntl_signal(SIGINT, [$this, 'handelSignal']);
 
-            // run command
-            $options = [];
-            if (is_string($this->queue) && $this->queue != $this->_defaultQueue) {
-                $options[] = "--queue={$this->queue}";
-            }
-            if ($this->name) {
-                $options[] = "--name={$this->name}";
-            }
-            $options = implode(' ', $options);
-            $command = PHP_BINARY . " {$this->scriptFile} {$this->uniqueId}/run $options 2>&1";
-            if ($this->outputPath) {
-                $sub = empty($this->name) ? '' : '/' . strtr(trim($this->name, '\\/'), ['/' => '', '\\' => '']);
-                $this->_outputPath = Yii::getAlias($this->outputPath) . $sub;
-            }
-
-            $start = time() - 60;
-            while (true) {
-                if ($this->name && time() - $start >= 60 && $this->cache) {
-                    $start = time();
-                    $this->cache->set([__CLASS__, 'pid', $this->name], $pid, 62 + $this->sleep);
-                }
-                $this->runQueue($command);
-                if ($this->sleep > 0) {
-                    sleep($this->sleep);
-                }
-            }
-            if ($this->name) {
-                $mutex->release($mutexKey);
-            }
-        } else {
-            $this->stderr("Already running...\n");
-            return self::EXIT_CODE_ERROR;
+        // run command
+        $commands = [
+            PHP_BINARY,
+            $this->scriptFile,
+            $this->uniqueId.'/run',
+        ];
+        if (is_string($this->queue) && $this->queue != $this->_defaultQueue) {
+            $commands[] = "--queue={$this->queue}";
+        }
+        $commands[] = '2>&1';
+        $command = implode(' ', $commands);
+        if ($this->outputPath) {
+            $this->_outputPath = Yii::getAlias($this->outputPath);
+        }
+        if ($this->maxProcess > 1) {
+            $this->_processes = array_fill(0, $this->maxProcess - 1, false);
+        }
+        while (true) {
+            $this->runQueue($command);
         }
         $this->stdout("Done..\n");
-    }
-
-    public function actionStatus()
-    {
-        if ($this->name && $this->cache) {
-            $pid = $this->cache->get([__CLASS__, 'pid', $this->name]);
-            if ($pid === false) {
-                echo "Not running...\n";
-            } else {
-                echo "Running...\n";
-            }
-        }
-    }
-
-    public function actionStop()
-    {
-        if ($this->name && $this->cache) {
-            $pid = $this->cache->get([__CLASS__, 'pid', $this->name]);
-            posix_kill($pid, SIGKILL);
-        }
     }
 
     public function handelSignal($signal)
@@ -182,18 +132,39 @@ class QueueController extends Controller
      */
     protected function runQueue($command)
     {
+        if ($this->maxProcess > 1) {
+            $wait = true;
+            $sleep = round(1000000 * ($this->sleep > 1 ? $this->sleep : 1) / $this->maxProcess);
+            while ($wait) {
+                foreach ($this->_processes as $i => $process) {
+                    usleep($sleep);
+                    if ($process === false || !$process->isRunning()) {
+                        if ($process) {
+                            $this->_processes[$i] = false;
+                            unset($process);
+                        }
+                        $index = $i;
+                        $wait = false;
+                        break;
+                    }
+                }
+            }
+        } else {
+            sleep($this->sleep > 1 ? $this->sleep : 1);
+        }
         if ($this->_outputPath) {
             if ($this->_day != ($d = date('Ym/d'))) {
                 $this->_day = $d;
-                $this->_file = Yii::getAlias("{$this->_outputPath}/{$d}.log");
+                $this->_file = "{$this->_outputPath}/{$d}.log";
                 FileHelper::createDirectory(dirname($this->_file), 0777);
             }
             $command .= " >>{$this->_file}";
         }
 
         $process = new Process($command);
-        if ($this->asynchron) {
+        if ($this->maxProcess > 1) {
             $process->start();
+            $this->_processes[$index] = $process;
         } else {
             $process->run();
         }
@@ -214,7 +185,7 @@ class QueueController extends Controller
     public function options($actionID)
     {
         return array_merge(parent::options($actionID), [
-            'name', 'asynchron', 'sleep', 'queue'
+            'maxProcess', 'sleep', 'queue'
         ]);
     }
 }
